@@ -1,4 +1,5 @@
 # Misty
+[![CircleCI](https://circleci.com/gh/rentziass/misty/tree/master.svg?style=shield)](https://circleci.com/gh/rentziass/misty/tree/master)
 
 This project was inspired by [pgdump-obfuscator](https://github.com/ostrovok-team/pgdump-obfuscator).
 
