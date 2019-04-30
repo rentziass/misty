@@ -1,5 +1,7 @@
 # Misty
 [![CircleCI](https://circleci.com/gh/rentziass/misty/tree/master.svg?style=shield)](https://circleci.com/gh/rentziass/misty/tree/master)
+[![Go Report Card](https://goreportcard.com/badge/gojp/goreportcard)](https://goreportcard.com/report/rentziass/misty) 
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](/LICENSE) 
 
 This project was inspired by [pgdump-obfuscator](https://github.com/ostrovok-team/pgdump-obfuscator).
 
