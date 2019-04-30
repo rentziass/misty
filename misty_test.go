@@ -10,7 +10,7 @@ func TestObfuscate(t *testing.T) {
 	r := strings.NewReader(dump)
 	var b bytes.Buffer
 
-	target := &Target{
+	usersTarget := &Target{
 		TableName: "public.users",
 		Columns: []*TargetColumn{
 			{
@@ -28,9 +28,21 @@ func TestObfuscate(t *testing.T) {
 		},
 	}
 
-	err := Obfuscate(r, &b, []*Target{target})
+	dogsTarget := &Target{
+		TableName: "public.dogs",
+		Columns: []*TargetColumn{
+			{
+				Name: "name",
+				Value: func() []byte {
+					return []byte("doggo")
+				},
+			},
+		},
+	}
+
+	err := Obfuscate(r, &b, []*Target{usersTarget, dogsTarget})
 	if err != nil {
-		t.Error("expected no error")
+		t.Fatalf("expected no error, got: %v", err)
 	}
 
 	if b.String() != expectedDump {
@@ -59,6 +71,21 @@ COPY public.users (id, handle, email) FROM stdin;
 \.
 
 --
+-- Name: dogs; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.dogs (
+    id integer NOT NULL,
+    name character varying(255) NOT NULL,
+);
+
+COPY public.dogs (id, name) FROM stdin;
+1	Apollo
+2	Bailey
+3	Bandit
+\.
+
+--
 -- PostgreSQL database dump complete
 --
 
@@ -82,6 +109,21 @@ COPY public.users (id, handle, email) FROM stdin;
 1	obfuscated_handle	obfuscated@email.com
 2	obfuscated_handle	obfuscated@email.com
 3	obfuscated_handle	obfuscated@email.com
+\.
+
+--
+-- Name: dogs; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.dogs (
+    id integer NOT NULL,
+    name character varying(255) NOT NULL,
+);
+
+COPY public.dogs (id, name) FROM stdin;
+1	doggo
+2	doggo
+3	doggo
 \.
 
 --
