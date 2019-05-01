@@ -38,6 +38,14 @@ func TestObfuscate(t *testing.T) {
 				},
 			},
 		},
+		DeleteRowRules: []*DeleteRule{
+			{
+				ColumnName: "name",
+				ShouldDelete: func(b []byte) bool {
+					return bytes.Equal(b,[]byte("Bandit"))
+				},
+			},
+		},
 	}
 
 	err := Obfuscate(r, &b, []*Target{usersTarget, dogsTarget})
@@ -123,7 +131,6 @@ CREATE TABLE public.dogs (
 COPY public.dogs (id, name) FROM stdin;
 1	doggo
 2	doggo
-3	doggo
 \.
 
 --

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 )
 
@@ -24,6 +25,7 @@ type Table struct {
 type Target struct {
 	TableName string
 	Columns   []*TargetColumn
+	DeleteRowRules []*DeleteRule
 }
 
 type TargetColumn struct {
@@ -31,13 +33,21 @@ type TargetColumn struct {
 	Value func() []byte
 }
 
+type DeleteRule struct {
+	ColumnName string
+	ShouldDelete func([]byte) bool
+}
+
+
+
+
 func Obfuscate(r io.Reader, writer io.Writer, targets []*Target) error {
 	buffer := bufio.NewReader(r)
 
 	operation := OperationOther
 
 	var table *Table
-	var targetsForTable []*TargetColumn
+	var targetForTable *Target
 
 	for currentLine := 1; ; currentLine++ {
 		line, readErr := buffer.ReadBytes('\n')
@@ -49,26 +59,32 @@ func Obfuscate(r io.Reader, writer io.Writer, targets []*Target) error {
 		case OperationOther:
 			if bytes.HasPrefix(line, []byte("COPY ")) {
 				table = parseCopyFields(string(line))
-				targetsForTable = []*TargetColumn{}
+				targetForTable = nil
 				for _, t := range targets {
 					if t.TableName == table.Name {
-						targetsForTable = t.Columns
+						targetForTable = t
+						operation = OperationCopy
+						log.Println("Beginning to work on table: ", table.Name)
 					}
 				}
-				operation = OperationCopy
+
+				if targetForTable == nil {
+					log.Printf("Found table %s, but no rules are defined, moving on...\n", table.Name)
+				}
 			}
 		case OperationCopy:
 			if bytes.Equal(line, []byte("\\.\n")) {
 				operation = OperationOther
+				log.Println("Done.")
 			} else {
 				hasNewlineSuffix := bytes.HasSuffix(line, []byte("\n"))
 				if hasNewlineSuffix {
 					line = line[:len(line)-1]
 				}
-				err := processDataLine(targetsForTable, table, &line)
+				err := processDataLine(targetForTable, table, &line)
 				if err != nil {
 					return fmt.Errorf("error while processing line %v: %v", currentLine, err)
-				} else if hasNewlineSuffix {
+				} else if hasNewlineSuffix && len(line) > 0 {
 					line = append(line, '\n')
 				}
 			}
@@ -81,13 +97,26 @@ func Obfuscate(r io.Reader, writer io.Writer, targets []*Target) error {
 	return nil
 }
 
-func processDataLine(targetColumns []*TargetColumn, table *Table, line *[]byte) error {
+func processDataLine(target *Target, table *Table, line *[]byte) error {
 	fields := bytes.Split(*line, []byte("\t"))
 	if len(fields) != len(table.Columns) {
 		return errors.New("invalid number of arguments")
 	}
 
-	for _, targetColumn := range targetColumns {
+	for _, deleteRule := range target.DeleteRowRules {
+		columnIndex, columnPresent := table.Columns[deleteRule.ColumnName]
+		if !columnPresent {
+			return errors.New(fmt.Sprintf("could not find column %s for table %s", deleteRule.ColumnName, table.Name))
+		}
+
+		if deleteRule.ShouldDelete(fields[columnIndex]) {
+            *line = []byte{}
+            return nil
+		}
+	}
+
+
+	for _, targetColumn := range target.Columns {
 		columnIndex, columnPresent := table.Columns[targetColumn.Name]
 		if !columnPresent {
 			return errors.New(fmt.Sprintf("could not find column %s for table %s", targetColumn.Name, table.Name))
