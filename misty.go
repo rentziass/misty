@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 )
 
@@ -14,6 +13,8 @@ const (
 	OperationOther = iota
 	OperationCopy
 )
+
+var Log Logger = &emptyLogger{}
 
 type Table struct {
 	Name string
@@ -23,8 +24,8 @@ type Table struct {
 }
 
 type Target struct {
-	TableName string
-	Columns   []*TargetColumn
+	TableName      string
+	Columns        []*TargetColumn
 	DeleteRowRules []*DeleteRule
 }
 
@@ -34,12 +35,23 @@ type TargetColumn struct {
 }
 
 type DeleteRule struct {
-	ColumnName string
+	ColumnName   string
 	ShouldDelete func([]byte) bool
 }
 
+type Logger interface {
+	Info(...interface{})
+	Debug(...interface{})
+	Warn(...interface{})
+	Error(...interface{})
+}
 
+type emptyLogger struct{}
 
+func (emptyLogger) Info(...interface{})  {}
+func (emptyLogger) Debug(...interface{}) {}
+func (emptyLogger) Warn(...interface{})  {}
+func (emptyLogger) Error(...interface{}) {}
 
 func Obfuscate(r io.Reader, writer io.Writer, targets []*Target) error {
 	buffer := bufio.NewReader(r)
@@ -64,18 +76,18 @@ func Obfuscate(r io.Reader, writer io.Writer, targets []*Target) error {
 					if t.TableName == table.Name {
 						targetForTable = t
 						operation = OperationCopy
-						log.Println("Beginning to work on table: ", table.Name)
+						Log.Info("Beginning to work on table: ", table.Name)
 					}
 				}
 
 				if targetForTable == nil {
-					log.Printf("Found table %s, but no rules are defined, moving on...\n", table.Name)
+					Log.Info(fmt.Sprintf("Ignoring table %s\n", table.Name))
 				}
 			}
 		case OperationCopy:
 			if bytes.Equal(line, []byte("\\.\n")) {
 				operation = OperationOther
-				log.Println("Done.")
+				Log.Info("Done.")
 			} else {
 				hasNewlineSuffix := bytes.HasSuffix(line, []byte("\n"))
 				if hasNewlineSuffix {
@@ -110,11 +122,10 @@ func processDataLine(target *Target, table *Table, line *[]byte) error {
 		}
 
 		if deleteRule.ShouldDelete(fields[columnIndex]) {
-            *line = []byte{}
-            return nil
+			*line = []byte{}
+			return nil
 		}
 	}
-
 
 	for _, targetColumn := range target.Columns {
 		columnIndex, columnPresent := table.Columns[targetColumn.Name]
