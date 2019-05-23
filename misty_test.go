@@ -15,14 +15,17 @@ func TestObfuscate(t *testing.T) {
 		Columns: []*TargetColumn{
 			{
 				Name: "handle",
-				Value: func() []byte {
+				Value: func(_ []byte) []byte {
 					return []byte("obfuscated_handle")
 				},
 			},
 			{
 				Name: "email",
-				Value: func() []byte {
-					return []byte("obfuscated@email.com")
+				Value: func(oldVal []byte) []byte {
+					if string(oldVal) == "some@example.com" {
+						return []byte("obfuscated@email.com")
+					}
+					return []byte("non_obfuscated@email.com")
 				},
 			},
 		},
@@ -33,7 +36,7 @@ func TestObfuscate(t *testing.T) {
 		Columns: []*TargetColumn{
 			{
 				Name: "name",
-				Value: func() []byte {
+				Value: func(_ []byte) []byte {
 					return []byte("doggo")
 				},
 			},
@@ -42,7 +45,7 @@ func TestObfuscate(t *testing.T) {
 			{
 				ColumnName: "name",
 				ShouldDelete: func(b []byte) bool {
-					return bytes.Equal(b,[]byte("Bandit"))
+					return bytes.Equal(b, []byte("Bandit"))
 				},
 			},
 		},
@@ -114,9 +117,9 @@ CREATE TABLE public.users (
 );
 
 COPY public.users (id, handle, email) FROM stdin;
-1	obfuscated_handle	obfuscated@email.com
+1	obfuscated_handle	non_obfuscated@email.com
 2	obfuscated_handle	obfuscated@email.com
-3	obfuscated_handle	obfuscated@email.com
+3	obfuscated_handle	non_obfuscated@email.com
 \.
 
 --

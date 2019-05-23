@@ -31,7 +31,7 @@ type Target struct {
 
 type TargetColumn struct {
 	Name  string
-	Value func() []byte
+	Value func([]byte) []byte
 }
 
 type DeleteRule struct {
@@ -133,7 +133,7 @@ func processDataLine(target *Target, table *Table, line *[]byte) error {
 			return errors.New(fmt.Sprintf("could not find column %s for table %s", targetColumn.Name, table.Name))
 		}
 
-		fields[columnIndex] = targetColumn.Value()
+		fields[columnIndex] = targetColumn.Value(fields[columnIndex])
 	}
 
 	*line = bytes.Join(fields, []byte("\t"))
