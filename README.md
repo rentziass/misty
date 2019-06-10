@@ -99,14 +99,14 @@ targets, like so:
 ```golang
 target := &misty.Target{
     TableName: "public.users",
-        DeleteRowRules: []*misty.DeleteRule{
-      {
-        ColumnName: "username",
-        ShouldDelete: func(u []byte) bool {
-          username := string(u)
-          return string.HasPrefix(username, "admin")
+    DeleteRowRules: []*misty.DeleteRule{
+        {
+            ColumnName: "username",
+            ShouldDelete: func(u []byte) bool {
+              username := string(u)
+              return string.HasPrefix(username, "admin")
+            },
         },
-      },
     },
 }
 ```
@@ -120,13 +120,13 @@ something like
 ```golang
 target := &misty.Target{
     TableName: "public.users",
-        DeleteRowRules: []*misty.DeleteRule{
-      {
-        ColumnName: "id",
-        ShouldDelete: func(_ []byte) bool {
-          return true
+    DeleteRowRules: []*misty.DeleteRule{
+        {
+            ColumnName: "id",
+            ShouldDelete: func(_ []byte) bool {
+              return true
+            },
         },
-      },
     },
 }
 ```
