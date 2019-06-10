@@ -36,10 +36,10 @@ func main() {
 
 }
 
-func obfuscateHandle() []byte {
+func obfuscateHandle(_ []byte) []byte {
 	return []byte(fake.UserName())
 }
 
-func obfuscateEmail() []byte {
+func obfuscateEmail(_ []byte) []byte {
 	return []byte(fake.EmailAddress())
 }
