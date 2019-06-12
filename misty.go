@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
+	"os"
 	"strings"
+	"sync"
 )
 
 const (
@@ -17,8 +20,9 @@ const (
 type Obfuscator struct {
 	Errors []error
 
-	reader io.Reader
-	writer io.Writer
+	dumpFile *os.File
+	reader   io.Reader
+	writer   io.Writer
 
 	targets   []*Target
 	tableMaps []*TableIndexEntry
@@ -43,8 +47,9 @@ func WithLogger(logger Logger) func(*Obfuscator) {
 	}
 }
 
-func NewObfuscator(r io.Reader, w io.Writer, targets []*Target, options ...Option) *Obfuscator {
+func NewObfuscator(f *os.File, r io.Reader, w io.Writer, targets []*Target, options ...Option) *Obfuscator {
 	obfuscator := &Obfuscator{
+		dumpFile:    f,
 		reader:      r,
 		writer:      w,
 		targets:     targets,
@@ -63,50 +68,123 @@ func NewObfuscator(r io.Reader, w io.Writer, targets []*Target, options ...Optio
 
 func (o *Obfuscator) Run() error {
 	if o.maxRoutines > 1 {
-		o.parallelObfuscate()
-		if len(o.Errors) > 1 {
-			return errors.New("there was an error running the obfuscator, check Obfuscator.Errors for more details")
-		}
-		return nil
+		return o.parallelObfuscate()
 	}
 
 	return o.obfuscateAll()
 }
 
-func (o *Obfuscator) parallelObfuscate() {
+func (o *Obfuscator) parallelObfuscate() error {
 	o.tableMaps = BuildTablesIndex(o.reader)
-	for i, t := range o.tableMaps {
-		go o.obfuscateTable(i, t)
+	tmpDir, err := ioutil.TempDir("", "obfuscator")
+	fmt.Println("temp dir:", tmpDir)
+	//defer os.RemoveAll(tmpDir)
+
+	if err != nil {
+		return err
 	}
+
+	var wg sync.WaitGroup
+	for i, t := range o.tableMaps {
+		wg.Add(1)
+		tableNumber := i
+		tableMap := t
+		go func() {
+			o.obfuscateTable(tableNumber, tmpDir, tableMap)
+			wg.Done()
+		}()
+	}
+
+	wg.Wait()
+	return nil
 }
 
 // Read and obfuscates a single table, outputting the result
-// in a temporary file
-func (o *Obfuscator) obfuscateTable(tableNumber int, tableMap *TableIndexEntry) {
+// in a temporary file inside the given folder
+func (o *Obfuscator) obfuscateTable(tableNumber int, tmpDir string, tableMap *TableIndexEntry) {
+	target := o.targetForTable(tableMap.Name)
+	// if no target is provided we don't wanna move forward
+	if target == nil {
+		return
+	}
 
+	filename := fmt.Sprintf("%s/table_%v", tmpDir, tableNumber)
+	f, err := os.Create(filename)
+	if err != nil {
+		o.Errors = append(o.Errors, err)
+	}
+	defer f.Close()
+
+	operation := OperationOther
+
+	tableBytes := make([]byte, tableMap.EndingAt-tableMap.StartingAt)
+	_, err = o.dumpFile.ReadAt(tableBytes, tableMap.StartingAt)
+	if err != nil {
+		o.Errors = append(o.Errors, err)
+	}
+
+	buffer := bytes.NewBuffer(tableBytes)
+	if err != nil {
+		o.Errors = append(o.Errors, err)
+	}
+
+	var table *Table
+	var targetForTable *Target
+
+	for currentLine := 1; ; currentLine++ {
+		line, readErr := buffer.ReadBytes('\n')
+		if readErr != nil && readErr == io.EOF {
+			break
+		}
+
+		switch operation {
+		case OperationOther:
+			if bytes.HasPrefix(line, []byte("COPY ")) {
+				table = parseCopyStatementFields(string(line))
+				targetForTable = nil
+				for _, t := range o.targets {
+					if t.TableName == table.Name {
+						targetForTable = t
+						operation = OperationCopy
+						o.logger.Info("starting table: ", table.Name)
+					}
+				}
+
+				if targetForTable == nil {
+					o.logger.Info(fmt.Sprintf("Ignoring table %s\n", table.Name))
+				}
+			}
+		case OperationCopy:
+			if bytes.Equal(line, []byte("\\.\n")) {
+				operation = OperationOther
+				o.logger.Info("done processing table: ", table.Name)
+			} else {
+				hasNewlineSuffix := bytes.HasSuffix(line, []byte("\n"))
+				if hasNewlineSuffix {
+					line = line[:len(line)-1]
+				}
+				err := processDataLine(targetForTable, table, &line)
+				if err != nil {
+					o.Errors = append(o.Errors, fmt.Errorf("error while processing line %v: %v", currentLine, err))
+				} else if hasNewlineSuffix && len(line) > 0 {
+					line = append(line, '\n')
+				}
+			}
+		}
+		_, err := f.Write(line)
+		if err != nil {
+			o.Errors = append(o.Errors, err)
+		}
+	}
 }
 
-type Table struct {
-	Name string
-
-	// Columns is a map of column names and their indices
-	Columns map[string]int
-}
-
-type Target struct {
-	TableName      string
-	Columns        []*TargetColumn
-	DeleteRowRules []*DeleteRule
-}
-
-type TargetColumn struct {
-	Name  string
-	Value func([]byte) []byte
-}
-
-type DeleteRule struct {
-	ColumnName   string
-	ShouldDelete func([]byte) bool
+func (o *Obfuscator) targetForTable(table string) *Target {
+	for _, t := range o.targets {
+		if t.TableName == table {
+			return t
+		}
+	}
+	return nil
 }
 
 func (o *Obfuscator) obfuscateAll() error {
