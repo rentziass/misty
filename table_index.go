@@ -46,7 +46,7 @@ func BuildTablesIndex(r io.Reader) TablesIndex {
 		switch operation {
 		case OperationOther:
 			if bytes.HasPrefix(line, []byte("COPY ")) {
-				table = parseCopyFields(string(line))
+				table = parseCopyStatementFields(string(line))
 				operation = OperationCopy
 				m := &TableIndexEntry{
 					Name:         table.Name,

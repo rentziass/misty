@@ -28,7 +28,7 @@ func TestBuildTablesIndex(t *testing.T) {
 	assert.EqualValues(t, 593, dogs.EndingAt)
 }
 
-var dump = `--
+var index_dump = `--
 -- PostgreSQL database dump
 --
 

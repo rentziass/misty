@@ -14,7 +14,77 @@ const (
 	OperationCopy
 )
 
-var Log Logger = &emptyLogger{}
+type Obfuscator struct {
+	Errors []error
+
+	reader io.Reader
+	writer io.Writer
+
+	targets   []*Target
+	tableMaps []*TableIndexEntry
+
+	maxRoutines    int
+	tableSemaphore chan bool
+
+	logger Logger
+}
+
+type Option func(*Obfuscator)
+
+func WithMaxRoutines(n int) func(*Obfuscator) {
+	return func(obfuscator *Obfuscator) {
+		obfuscator.maxRoutines = n
+	}
+}
+
+func WithLogger(logger Logger) func(*Obfuscator) {
+	return func(obfuscator *Obfuscator) {
+		obfuscator.logger = logger
+	}
+}
+
+func NewObfuscator(r io.Reader, w io.Writer, targets []*Target, options ...Option) *Obfuscator {
+	obfuscator := &Obfuscator{
+		reader:      r,
+		writer:      w,
+		targets:     targets,
+		maxRoutines: 1,
+		logger:      &emptyLogger{},
+	}
+
+	for _, option := range options {
+		option(obfuscator)
+	}
+
+	obfuscator.tableSemaphore = make(chan bool, obfuscator.maxRoutines)
+
+	return obfuscator
+}
+
+func (o *Obfuscator) Run() error {
+	if o.maxRoutines > 1 {
+		o.parallelObfuscate()
+		if len(o.Errors) > 1 {
+			return errors.New("there was an error running the obfuscator, check Obfuscator.Errors for more details")
+		}
+		return nil
+	}
+
+	return o.obfuscateAll()
+}
+
+func (o *Obfuscator) parallelObfuscate() {
+	o.tableMaps = BuildTablesIndex(o.reader)
+	for i, t := range o.tableMaps {
+		go o.obfuscateTable(i, t)
+	}
+}
+
+// Read and obfuscates a single table, outputting the result
+// in a temporary file
+func (o *Obfuscator) obfuscateTable(tableNumber int, tableMap *TableIndexEntry) {
+
+}
 
 type Table struct {
 	Name string
@@ -39,22 +109,8 @@ type DeleteRule struct {
 	ShouldDelete func([]byte) bool
 }
 
-type Logger interface {
-	Info(...interface{})
-	Debug(...interface{})
-	Warn(...interface{})
-	Error(...interface{})
-}
-
-type emptyLogger struct{}
-
-func (emptyLogger) Info(...interface{})  {}
-func (emptyLogger) Debug(...interface{}) {}
-func (emptyLogger) Warn(...interface{})  {}
-func (emptyLogger) Error(...interface{}) {}
-
-func Obfuscate(r io.Reader, writer io.Writer, targets []*Target) error {
-	buffer := bufio.NewReader(r)
+func (o *Obfuscator) obfuscateAll() error {
+	buffer := bufio.NewReader(o.reader)
 
 	operation := OperationOther
 
@@ -70,24 +126,24 @@ func Obfuscate(r io.Reader, writer io.Writer, targets []*Target) error {
 		switch operation {
 		case OperationOther:
 			if bytes.HasPrefix(line, []byte("COPY ")) {
-				table = parseCopyFields(string(line))
+				table = parseCopyStatementFields(string(line))
 				targetForTable = nil
-				for _, t := range targets {
+				for _, t := range o.targets {
 					if t.TableName == table.Name {
 						targetForTable = t
 						operation = OperationCopy
-						Log.Info("Beginning to work on table: ", table.Name)
+						o.logger.Info("Beginning to work on table: ", table.Name)
 					}
 				}
 
 				if targetForTable == nil {
-					Log.Info(fmt.Sprintf("Ignoring table %s\n", table.Name))
+					o.logger.Info(fmt.Sprintf("Ignoring table %s\n", table.Name))
 				}
 			}
 		case OperationCopy:
 			if bytes.Equal(line, []byte("\\.\n")) {
 				operation = OperationOther
-				Log.Info("Done.")
+				o.logger.Info("Done.")
 			} else {
 				hasNewlineSuffix := bytes.HasSuffix(line, []byte("\n"))
 				if hasNewlineSuffix {
@@ -101,7 +157,7 @@ func Obfuscate(r io.Reader, writer io.Writer, targets []*Target) error {
 				}
 			}
 		}
-		_, err := writer.Write(line)
+		_, err := o.writer.Write(line)
 		if err != nil {
 			return err
 		}
@@ -140,7 +196,7 @@ func processDataLine(target *Target, table *Table, line *[]byte) error {
 	return nil
 }
 
-func parseCopyFields(line string) *Table {
+func parseCopyStatementFields(line string) *Table {
 	delimiters := " \n'\"(),;"
 	fields := strings.FieldsFunc(line, func(r rune) bool {
 		return strings.ContainsRune(delimiters, r)

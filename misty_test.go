@@ -1,18 +1,20 @@
-package misty
+package misty_test
 
 import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/rentziass/misty"
 )
 
 func TestObfuscate(t *testing.T) {
 	r := strings.NewReader(dump)
 	var b bytes.Buffer
 
-	usersTarget := &Target{
+	usersTarget := &misty.Target{
 		TableName: "public.users",
-		Columns: []*TargetColumn{
+		Columns: []*misty.TargetColumn{
 			{
 				Name: "handle",
 				Value: func(_ []byte) []byte {
@@ -31,9 +33,9 @@ func TestObfuscate(t *testing.T) {
 		},
 	}
 
-	dogsTarget := &Target{
+	dogsTarget := &misty.Target{
 		TableName: "public.dogs",
-		Columns: []*TargetColumn{
+		Columns: []*misty.TargetColumn{
 			{
 				Name: "name",
 				Value: func(_ []byte) []byte {
@@ -41,7 +43,7 @@ func TestObfuscate(t *testing.T) {
 				},
 			},
 		},
-		DeleteRowRules: []*DeleteRule{
+		DeleteRowRules: []*misty.DeleteRule{
 			{
 				ColumnName: "name",
 				ShouldDelete: func(b []byte) bool {
@@ -50,8 +52,11 @@ func TestObfuscate(t *testing.T) {
 			},
 		},
 	}
+	targets := []*misty.Target{usersTarget, dogsTarget}
 
-	err := Obfuscate(r, &b, []*Target{usersTarget, dogsTarget})
+	o := misty.NewObfuscator(r, &b, targets)
+
+	err := o.Run()
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
