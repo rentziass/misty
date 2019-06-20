@@ -15,6 +15,7 @@ import (
 const (
 	OperationOther = iota
 	OperationCopy
+	OperationIgnore
 )
 
 type Obfuscator struct {
@@ -26,6 +27,8 @@ type Obfuscator struct {
 
 	targets   []*Target
 	tableMaps []*TableIndexEntry
+
+	tmpDir string
 
 	maxRoutines    int
 	tableSemaphore chan bool
@@ -77,12 +80,11 @@ func (o *Obfuscator) Run() error {
 func (o *Obfuscator) parallelObfuscate() error {
 	o.tableMaps = BuildTablesIndex(o.reader)
 	tmpDir, err := ioutil.TempDir("", "obfuscator")
-	fmt.Println("temp dir:", tmpDir)
-	//defer os.RemoveAll(tmpDir)
-
 	if err != nil {
 		return err
 	}
+	defer os.RemoveAll(tmpDir)
+	o.tmpDir = tmpDir
 
 	var wg sync.WaitGroup
 	for i, t := range o.tableMaps {
@@ -96,6 +98,68 @@ func (o *Obfuscator) parallelObfuscate() error {
 	}
 
 	wg.Wait()
+
+	buffer := bufio.NewReader(o.dumpFile)
+
+	operation := OperationCopy
+
+	var table *Table
+	currentTable := 0
+
+	for {
+		fmt.Println("inside")
+		line, readErr := buffer.ReadBytes('\n')
+		if readErr != nil && readErr == io.EOF {
+			break
+		}
+
+		switch operation {
+		case OperationCopy:
+			if bytes.HasPrefix(line, []byte("COPY ")) {
+				table = parseCopyStatementFields(string(line))
+				for _, t := range o.targets {
+					if t.TableName == table.Name {
+						operation = OperationIgnore
+						o.copyObfuscatedTable(currentTable)
+						currentTable++
+						continue
+					}
+				}
+			}
+			currentTable++
+			fmt.Println("about to write")
+			_, err := o.writer.Write(line)
+			if err != nil {
+				return err
+			}
+		case OperationIgnore:
+			if bytes.Equal(line, []byte("\\.\n")) {
+				operation = OperationCopy
+			}
+		}
+	}
+
+	return nil
+}
+
+func (o *Obfuscator) copyObfuscatedTable(tableNumber int) error {
+	tableFile, err := os.Open(fmt.Sprintf("%s/%v", o.tmpDir, tableNumber))
+	if err != nil {
+		return err
+	}
+
+	buffer := bufio.NewReader(tableFile)
+	for {
+		line, readErr := buffer.ReadBytes('\n')
+		if readErr != nil && readErr == io.EOF {
+			break
+		}
+
+		_, err = o.writer.Write(line)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

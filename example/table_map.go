@@ -25,11 +25,17 @@ func main() {
 		panic(err)
 	}
 
-	targets := crmTargets()
-	targets = append(targets, platformTargets()...)
-	targets = append(targets, trackingTargets()...)
+	var targets []*misty.Target
+	//targets := crmTargets()
+	//targets = append(targets, platformTargets()...)
+	//targets = append(targets, trackingTargets()...)
 
-	o := misty.NewObfuscator(f, f, os.Stdout, targets, misty.WithMaxRoutines(5), misty.WithLogger(logrus.New()))
+	d, err := os.Create("concurrent_out")
+	if err != nil {
+		panic(err)
+	}
+
+	o := misty.NewObfuscator(f, f, d, targets, misty.WithMaxRoutines(5), misty.WithLogger(logrus.New()))
 	err = o.Run()
 	fmt.Println(err)
 
