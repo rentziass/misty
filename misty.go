@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/rentziass/misty/logger"
 )
 
 const (
@@ -14,46 +16,49 @@ const (
 	OperationCopy
 )
 
-var Log Logger = &emptyLogger{}
+type (
+	Table struct {
+		Name string
 
-type Table struct {
-	Name string
+		// Columns is a map of column names and their indices
+		Columns map[string]int
+	}
 
-	// Columns is a map of column names and their indices
-	Columns map[string]int
-}
+	Target struct {
+		TableName      string
+		Columns        []*TargetColumn
+		DeleteRowRules []*DeleteRule
+	}
 
-type Target struct {
-	TableName      string
-	Columns        []*TargetColumn
-	DeleteRowRules []*DeleteRule
-}
+	TargetColumn struct {
+		Name  string
+		Value func([]byte) []byte
+	}
 
-type TargetColumn struct {
-	Name  string
-	Value func([]byte) []byte
-}
+	DeleteRule struct {
+		ColumnName   string
+		ShouldDelete func([]byte) bool
+	}
 
-type DeleteRule struct {
-	ColumnName   string
-	ShouldDelete func([]byte) bool
-}
-
-type Logger interface {
-	Info(...interface{})
-	Debug(...interface{})
-	Warn(...interface{})
-	Error(...interface{})
-}
-
-type emptyLogger struct{}
-
-func (emptyLogger) Info(...interface{})  {}
-func (emptyLogger) Debug(...interface{}) {}
-func (emptyLogger) Warn(...interface{})  {}
-func (emptyLogger) Error(...interface{}) {}
+	Obfuscator struct {
+		logger  logger.Logger
+		targets []*Target
+	}
+)
 
 func Obfuscate(r io.Reader, writer io.Writer, targets []*Target) error {
+	instance := NewObfuscator(logger.DefaultLogger, targets)
+	return instance.Obfuscate(r, writer)
+}
+
+func NewObfuscator(logger logger.Logger, targets []*Target) *Obfuscator {
+	return &Obfuscator{
+		logger:  logger,
+		targets: targets,
+	}
+}
+
+func (o Obfuscator) Obfuscate(r io.Reader, writer io.Writer) error {
 	buffer := bufio.NewReader(r)
 
 	operation := OperationOther
@@ -72,22 +77,22 @@ func Obfuscate(r io.Reader, writer io.Writer, targets []*Target) error {
 			if bytes.HasPrefix(line, []byte("COPY ")) {
 				table = parseCopyFields(string(line))
 				targetForTable = nil
-				for _, t := range targets {
+				for _, t := range o.targets {
 					if t.TableName == table.Name {
 						targetForTable = t
 						operation = OperationCopy
-						Log.Info("Beginning to work on table: ", table.Name)
+						o.logger.Info("Beginning to work on table: ", table.Name)
 					}
 				}
 
 				if targetForTable == nil {
-					Log.Info(fmt.Sprintf("Ignoring table %s\n", table.Name))
+					o.logger.Info(fmt.Sprintf("Ignoring table %s\n", table.Name))
 				}
 			}
 		case OperationCopy:
 			if bytes.Equal(line, []byte("\\.\n")) {
 				operation = OperationOther
-				Log.Info("Done.")
+				o.logger.Info("Done.")
 			} else {
 				hasNewlineSuffix := bytes.HasSuffix(line, []byte("\n"))
 				if hasNewlineSuffix {
