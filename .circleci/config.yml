@@ -8,8 +8,4 @@ jobs:
       - checkout
 
       - run: go get -v -t -d ./...
-<<<<<<< HEAD
       - run: make tests
-=======
-      - run: go test -v ./...
->>>>>>> master
